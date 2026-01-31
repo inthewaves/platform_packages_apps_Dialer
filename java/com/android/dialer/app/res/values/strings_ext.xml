@@ -38,12 +38,14 @@
         <item>AAC in MPEG-4 container</item>
         <item>AMR-WB</item>
         <item>Uncompressed PCM in WAV container</item>
+        <item>FLAC</item>
     </string-array>
 
     <string-array name="call_recording_output_format_values_v2" translatable="false">
         <item>"0"</item>
         <item>"1"</item>
         <item>"2"</item>
+        <item>"3"</item>
     </string-array>
 
     <string name="call_recording_output_format_default" translatable="false">"0"</string>

@@ -7,10 +7,17 @@ import android.media.MediaFormat;
 import android.media.MediaMuxer;
 import android.net.Uri;
 import android.os.ParcelFileDescriptor;
+import android.util.Base64;
 import android.util.Log;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.Charset;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.StandardCharsets;
 
 
 /**
@@ -31,6 +38,7 @@ public class MediaCodecRecorder extends BaseCallRecorder {
   private AudioWriter mAudioWriter;
   protected final MediaCodec mMediaCodec;
   private final MediaFormat mMediaFormat;
+  private final boolean mShouldWriteCodecSpecificData;
 
   /**
    *
@@ -40,6 +48,9 @@ public class MediaCodecRecorder extends BaseCallRecorder {
   public MediaCodecRecorder(Context context, int audioSource, Uri uri, OutputFormat outputFormat) {
     super(context, audioSource, uri, outputFormat);
 
+    // FLAC header is written to csd-0 buffer
+    mShouldWriteCodecSpecificData = outputFormat == OutputFormat.FLAC;
+
     switch (outputFormat) {
       case AAC_MPEG_4:
         mMediaFormat = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC,
@@ -48,6 +59,12 @@ public class MediaCodecRecorder extends BaseCallRecorder {
       case AMR_WB:
         mMediaFormat = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AMR_WB,
                 mAudioFormat.getSampleRate(), mAudioFormat.getChannelCount());
+        break;
+      case FLAC:
+        mMediaFormat = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_FLAC,
+                mAudioFormat.getSampleRate(), mAudioFormat.getChannelCount());
+        mMediaFormat.setInteger(MediaFormat.KEY_FLAC_COMPRESSION_LEVEL,
+                OutputFormat.FLAC_COMPRESSION_LEVEL);
         break;
       default:
         throw new IllegalArgumentException("unexpected output format " + outputFormat);
@@ -78,6 +95,9 @@ public class MediaCodecRecorder extends BaseCallRecorder {
         break;
       case AMR_WB:
         mAudioWriter = new AmrAudioWriter(pfd.getFileDescriptor());
+        break;
+      case FLAC:
+        mAudioWriter = new AudioWriter.OutputStreamAudioWriter(pfd.getFileDescriptor());
         break;
       default:
         throw new IllegalStateException("unknown format " + mOutputFormat);
@@ -139,6 +159,45 @@ public class MediaCodecRecorder extends BaseCallRecorder {
     }
     MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
     drainEncoder(info, true);
+
+    if (Log.isLoggable("GosFlushFirst", Log.VERBOSE)) {
+      Log.d(TAG, "GosFlushFirst");
+
+      if (!Log.isLoggable("GosSkipFlushFirst", Log.VERBOSE)) {
+        try {
+          mMediaCodec.flush();
+        } catch (IllegalStateException e) {
+          Log.w(TAG, "reset: flush failed", e);
+        }
+      }
+
+      int idx = mMediaCodec.dequeueInputBuffer(10000);
+      if (idx >= 0) {
+        Log.d(TAG, "enqueue input buffer for codec config");
+        mMediaCodec.queueInputBuffer(idx, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM | MediaCodec.BUFFER_FLAG_CODEC_CONFIG);
+      }
+
+      MediaCodec.BufferInfo info1 = new MediaCodec.BufferInfo();
+      idx = mMediaCodec.dequeueOutputBuffer(info1, 10000);
+      mMediaCodec.getOutputBuffer(idx);
+      boolean isConfig = (info1.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0;
+      mMediaCodec.releaseOutputBuffer(idx, false);
+
+      Log.d(TAG, "isConfig " + isConfig);
+
+      try {
+        ByteBuffer csd1 = mMediaCodec.getOutputFormat().getByteBuffer("csd-0");
+        if (csd1 != null) {
+          byte[] csdBytes = csd1.array();
+          String csdBase64 = Base64.encodeToString(csdBytes, Base64.NO_WRAP);
+          Log.d(TAG, "onRecordingStop: csdBase64: " + csdBase64);
+          String csdDots = decodeUtf8WithDots(csdBytes);
+          Log.d(TAG, "onRecordingStop: csdDots: " + csdDots);
+        }
+      } catch (Exception e) {
+        Log.e(TAG, "Failed to get csd bytes");
+      }
+    }
   }
 
   private boolean drainEncoder(MediaCodec.BufferInfo info, boolean shouldLoopUntilEos)
@@ -146,6 +205,7 @@ public class MediaCodecRecorder extends BaseCallRecorder {
     while (!Thread.currentThread().isInterrupted()) {
       int outputBufferIndex = mMediaCodec.dequeueOutputBuffer(info, 0);
       if (outputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+        Log.w(TAG, "drainEncoder: INFO_OUTPUT_FORMAT_CHANGED");
         mAudioWriter.init(mMediaCodec.getOutputFormat());
       } else if (outputBufferIndex == MediaCodec.INFO_TRY_AGAIN_LATER) {
         if (!shouldLoopUntilEos) {
@@ -160,15 +220,17 @@ public class MediaCodecRecorder extends BaseCallRecorder {
             return false;
           }
 
-          if ((info.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) == 0) {
+          final boolean isEos = (info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0;
+          Log.d(TAG, "drainEncoder: isEos " + isEos + ", bytes written " + mBytesRead.get());
+          final boolean isCodecConfig = (info.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0;
+          if (!isCodecConfig || mShouldWriteCodecSpecificData) {
+            if (isCodecConfig) {
+              Log.d(TAG, "drainEncoder: writing codec specific data, isEos " + isEos);
+            }
             outBuf.position(info.offset);
             outBuf.limit(info.offset + info.size);
             mAudioWriter.write(outBuf, info);
-          } else {
-            Log.d(TAG, "drainEncoder: skipping codec config");
           }
-
-          final boolean isEos = (info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0;
 
           if (shouldLoopUntilEos) {
             if (isEos) {
@@ -188,6 +250,27 @@ public class MediaCodecRecorder extends BaseCallRecorder {
     return true;
   }
 
+  public static String decodeWithDots(byte[] bytes, Charset charset) {
+    CharsetDecoder decoder = charset
+            .newDecoder()
+            .onMalformedInput(CodingErrorAction.REPLACE)
+            .onUnmappableCharacter(CodingErrorAction.REPLACE);
+    decoder.replaceWith(".");
+
+    try {
+      CharBuffer cb = decoder.decode(ByteBuffer.wrap(bytes));
+      return cb.toString();
+    } catch (CharacterCodingException e) {
+      // Should not occur with REPLACE, but fallback just in case
+      return new String(bytes, StandardCharsets.ISO_8859_1);
+    }
+  }
+
+  // Convenience for UTF-8
+  public static String decodeUtf8WithDots(byte[] bytes) {
+    return decodeWithDots(bytes, StandardCharsets.UTF_8);
+  }
+
   private void closeAudioWriter() {
     final AudioWriter writer = mAudioWriter;
     if (writer != null) {
@@ -201,11 +284,6 @@ public class MediaCodecRecorder extends BaseCallRecorder {
 
   @Override
   protected void reset() {
-    try {
-      mMediaCodec.flush();
-    } catch (IllegalStateException e) {
-      Log.w(TAG, "reset: flush failed", e);
-    }
     try {
       mMediaCodec.stop();
     } catch (IllegalStateException e) {

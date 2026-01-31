@@ -19,7 +19,10 @@ public enum OutputFormat {
    * Note: A sample rate of 16000 Hz is required for AMR-WB encoders on Android
    */
   AMR_WB(1, AudioFormat.CHANNEL_IN_MONO, 16000, 16000, ".amr"),
-  LPCM_WAV(2, AudioFormat.CHANNEL_IN_MONO, 16000, 16000, ".wav");
+  LPCM_WAV(2, AudioFormat.CHANNEL_IN_MONO, 16000, 16000, ".wav"),
+  FLAC(3, AudioFormat.CHANNEL_IN_MONO, 16000, 16000, ".flac");
+
+  public static final int FLAC_COMPRESSION_LEVEL = 8;
 
   public final int selectionIdForPrefs;
   public final int channelMask;

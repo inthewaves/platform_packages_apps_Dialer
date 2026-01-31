@@ -137,6 +137,7 @@ public class CallRecorderServiceV2 extends Service {
       switch (outputFormat) {
         case AAC_MPEG_4: // fall-through
         case AMR_WB:
+        case FLAC:
           mCallRecorder = new MediaCodecRecorder(this, audioSource, uri, outputFormat);
           break;
         case LPCM_WAV:
