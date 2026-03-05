@@ -118,6 +118,7 @@ public class CallRecorder implements CallList.Listener {
 
   public boolean startRecording(final String phoneNumber, final long creationTime) {
     if (service == null) {
+      Log.w(TAG, "Failed to start recording , service null");
       return false;
     }
 

@@ -52,6 +52,7 @@ import com.android.dialer.strictmode.StrictModeUtils;
 import com.android.dialer.widget.LockableViewPager;
 import com.android.incallui.audioroute.AudioRouteSelectorDialogFragment;
 import com.android.incallui.audioroute.AudioRouteSelectorDialogFragment.AudioRouteSelectorPresenter;
+import com.android.incallui.call.CallRecorder;
 import com.android.incallui.contactgrid.ContactGridManager;
 import com.android.incallui.hold.OnHoldFragment;
 import com.android.incallui.incall.impl.ButtonController.CallRecordButtonController;
@@ -71,6 +72,7 @@ import com.android.incallui.incall.protocol.PrimaryCallState.ButtonState;
 import com.android.incallui.incall.protocol.PrimaryInfo;
 import com.android.incallui.incall.protocol.SecondaryInfo;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /** Fragment that shows UI for an ongoing voice call. */
@@ -491,11 +493,18 @@ public class InCallFragment extends Fragment
   @Override
   public void onRequestPermissionsResult(int requestCode,
       @NonNull String[] permissions, @NonNull int[] grantResults) {
+    ArrayList<Integer> grantResult = new ArrayList<>(grantResults.length);
+    for (int i : grantResults) {
+      grantResult.add(i);
+    }
+    LogUtil.i("InCallFragment.onRequestPermissionsResult", "entered with requestCode " + requestCode + ", permissions " + Arrays.asList(permissions) + ", grantResults " + grantResult);
     if (requestCode == REQUEST_CODE_CALL_RECORD_PERMISSION) {
       boolean allGranted = grantResults.length > 0;
       for (int i = 0; i < grantResults.length; i++) {
+        LogUtil.i("InCallFragment.onRequestPermissionsResult", "GOS-DEBUG: perm " + permissions[i] + " has grant state " + (grantResults[i] == PackageManager.PERMISSION_GRANTED));
         allGranted &= grantResults[i] == PackageManager.PERMISSION_GRANTED;
       }
+      LogUtil.i("InCallFragment.onRequestPermissionsResult", "GOS-DEBUG: all granted " + allGranted);
       if (allGranted) {
         inCallButtonUiDelegate.callRecordClicked(true);
       }

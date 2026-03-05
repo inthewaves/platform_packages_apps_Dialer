@@ -57,6 +57,8 @@ import com.android.incallui.incall.protocol.InCallButtonUiDelegate;
 import com.android.incallui.multisim.SwapSimWorker;
 import com.android.incallui.videotech.utils.VideoUtils;
 
+import java.util.Arrays;
+
 /** Logic for call buttons. */
 public class CallButtonPresenter
     implements InCallStateListener,
@@ -365,9 +367,11 @@ public class CallButtonPresenter
 
   private void startCallRecordingOrAskForPermission() {
     if (hasAllPermissions(CallRecorder.REQUIRED_PERMISSIONS)) {
+      LogUtil.i("CallButtonPresenter.startCallRecordingOrAskForPermission", "has permissions " + Arrays.asList(CallRecorder.REQUIRED_PERMISSIONS));
       CallRecorder recorder = CallRecorder.getInstance();
       recorder.startRecording(call.getNumber(), call.getCreationTimeMillis());
     } else {
+      LogUtil.i("CallButtonPresenter.startCallRecordingOrAskForPermission", "no permissions " + Arrays.asList(CallRecorder.REQUIRED_PERMISSIONS));
       inCallButtonUi.requestCallRecordingPermissions(CallRecorder.REQUIRED_PERMISSIONS);
     }
   }
