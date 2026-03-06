@@ -226,6 +226,14 @@ public class MediaCodecRecorder extends BaseCallRecorder {
           if (!isCodecConfig || mShouldWriteCodecSpecificData) {
             if (isCodecConfig) {
               Log.d(TAG, "drainEncoder: writing codec specific data, isEos " + isEos);
+              ByteBuffer csd1 = mMediaCodec.getOutputFormat().getByteBuffer("csd-0");
+              if (csd1 != null) {
+                byte[] csdBytes = csd1.array();
+                String csdBase64 = Base64.encodeToString(csdBytes, Base64.NO_WRAP);
+                Log.d(TAG, "drainEncoder: csdBase64: " + csdBase64);
+                String csdDots = decodeUtf8WithDots(csdBytes);
+                Log.d(TAG, "drainEncoder: csdDots: " + csdDots);
+              }
             }
             outBuf.position(info.offset);
             outBuf.limit(info.offset + info.size);
